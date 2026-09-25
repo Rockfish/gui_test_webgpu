@@ -1,21 +1,20 @@
 const std = @import("std");
 const math = std.math;
 const assert = std.debug.assert;
-const glfw = @import("zglfw");
-const zopengl = @import("zopengl");
+const zglfw = @import("zglfw");
+const zgpu = @import("zgpu");
+const wgpu = zgpu.wgpu;
 const zgui = @import("zgui");
 const zstbi = @import("zstbi");
-const gl = zopengl.bindings;
-
-const Allocator = std.mem.Allocator;
 
 const content_dir = @import("build_options").content_dir;
-const window_title = "zig-gamedev: gui test (opengl)";
+const window_title = "zig-gamedev: gui test (webgpu)";
 
 const embedded_font_data = @embedFile("./FiraCode-Medium.ttf");
 
 const DemoState = struct {
-    texture: *Texture,
+    gctx: *zgpu.GraphicsContext,
+    texture_view: zgpu.TextureViewHandle,
     font_normal: zgui.Font,
     font_large: zgui.Font,
     font_large_size: f32,
@@ -24,90 +23,85 @@ const DemoState = struct {
     alloced_input_text_multiline_buf: [:0]u8,
     alloced_input_text_with_hint_buf: [:0]u8,
 };
-
 var _te: *zgui.te.TestEngine = undefined;
 
-var frame_counter: FrameCount = undefined;
+fn create(io: std.Io, allocator: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
+    const gctx = try zgpu.GraphicsContext.create(
+        allocator,
+        .{
+            .window = window,
+            .fn_getTime = @ptrCast(&zglfw.getTime),
+            .fn_getFramebufferSize = @ptrCast(&zglfw.Window.getFramebufferSize),
+            .fn_getWin32Window = @ptrCast(&zglfw.getWin32Window),
+            .fn_getX11Display = @ptrCast(&zglfw.getX11Display),
+            .fn_getX11Window = @ptrCast(&zglfw.getX11Window),
+            .fn_getWaylandDisplay = @ptrCast(&zglfw.getWaylandDisplay),
+            .fn_getWaylandSurface = @ptrCast(&zglfw.getWaylandWindow),
+            .fn_getCocoaWindow = @ptrCast(&zglfw.getCocoaWindow),
+        },
+        .{},
+    );
+    errdefer gctx.destroy(allocator);
 
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
 
-    try glfw.init();
-    defer glfw.terminate();
+    zstbi.init(io, arena);
+    defer zstbi.deinit();
 
-    // Change current working directory to where the executable is located.
-    {
-        var buffer: [std.fs.max_path_bytes]u8 = undefined;
-        const len = std.process.executableDirPath(init.io, &buffer) catch 0;
-        const path = if (len > 0) buffer[0..len] else ".";
-        std.process.setCurrentPath(init.io, path) catch {};
-    }
+    var image = try zstbi.Image.loadFromFile(content_dir ++ "genart_0025_5.png", 4);
+    defer image.deinit();
 
-    const gl_major = 4;
-    const gl_minor = 0;
-    glfw.windowHint(.context_version_major, gl_major);
-    glfw.windowHint(.context_version_minor, gl_minor);
-    glfw.windowHint(.opengl_profile, .opengl_core_profile);
-    glfw.windowHint(.opengl_forward_compat, true);
-    glfw.windowHint(.client_api, .opengl_api);
-    glfw.windowHint(.doublebuffer, true);
+    // Create a texture.
+    const texture = gctx.createTexture(.{
+        .usage = .{ .texture_binding = true, .copy_dst = true },
+        .size = .{
+            .width = image.width,
+            .height = image.height,
+            .depth_or_array_layers = 1,
+        },
+        .format = zgpu.imageInfoToTextureFormat(
+            image.num_components,
+            image.bytes_per_component,
+            image.is_hdr,
+        ),
+        .mip_level_count = 1,
+    });
+    const texture_view = gctx.createTextureView(texture, .{});
 
-    const window = try glfw.Window.create(1600, 1000, window_title, null, null);
-    defer window.destroy();
-
-    glfw.makeContextCurrent(window);
-    glfw.swapInterval(1);
-
-    window.setSizeLimits(400, 400, -1, -1);
-
-    try zopengl.loadCoreProfile(glfw.getProcAddress, gl_major, gl_minor);
-
-    gl.enable(gl.DEPTH_TEST);
-
-    const demo = try create(init.io, allocator, window);
-    defer destroy(allocator, demo);
-
-    registerTests();
-
-    frame_counter = FrameCount.new(init.io);
-
-    while (!window.shouldClose() and window.getKey(.escape) != .press) {
-        glfw.pollEvents();
-
-        gl.clearColor(0.05, 0.4, 0.05, 1.0);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-        try update(demo);
-
-        draw(demo);
-
-        window.swapBuffers();
-    }
-}
-
-fn create(io: std.Io, allocator: std.mem.Allocator, window: *glfw.Window) !*DemoState {
-    const texture = try Texture.new(io, allocator, content_dir ++ "genart_0025_5.png");
+    gctx.queue.writeTexture(
+        .{ .texture = gctx.lookupResource(texture).? },
+        .{
+            .bytes_per_row = image.bytes_per_row,
+            .rows_per_image = image.height,
+        },
+        .{ .width = image.width, .height = image.height },
+        u8,
+        image.data,
+    );
 
     zgui.init(allocator);
     zgui.plot.init();
-
     _te = zgui.te.getTestEngine().?;
-
     const scale_factor = scale_factor: {
         const scale = window.getContentScale();
         break :scale_factor @max(scale[0], scale[1]);
     };
-
     const font_size = 16.0 * scale_factor;
     const font_large_size = math.floor(font_size * 1.1);
     const font_large = zgui.io.addFontFromMemory(embedded_font_data, font_large_size);
     const font_normal = zgui.io.addFontFromFile(content_dir ++ "Roboto-Medium.ttf", math.floor(font_size));
-
     assert(zgui.io.getFont(0) == font_large);
     assert(zgui.io.getFont(1) == font_normal);
 
     // This needs to be called *after* adding your custom fonts.
-    zgui.backend.init(window);
+    zgui.backend.init(
+        window,
+        gctx.device,
+        @intFromEnum(zgpu.GraphicsContext.swapchain_format),
+        @intFromEnum(wgpu.TextureFormat.undef),
+    );
 
     // This call is optional. Initially, zgui.io.getFont(0) is a default font.
     zgui.io.setDefaultFont(font_normal);
@@ -140,7 +134,8 @@ fn create(io: std.Io, allocator: std.mem.Allocator, window: *glfw.Window) !*Demo
 
     const demo = try allocator.create(DemoState);
     demo.* = .{
-        .texture = texture,
+        .gctx = gctx,
+        .texture_view = texture_view,
         .font_normal = font_normal,
         .font_large = font_large,
         .font_large_size = font_large_size,
@@ -161,7 +156,7 @@ fn destroy(allocator: std.mem.Allocator, demo: *DemoState) void {
     zgui.plot.deinit();
     zgui.destroyDrawList(demo.draw_list);
     zgui.deinit();
-    demo.texture.deinit();
+    demo.gctx.destroy(allocator);
     allocator.free(demo.alloced_input_text_buf);
     allocator.free(demo.alloced_input_text_multiline_buf);
     allocator.free(demo.alloced_input_text_with_hint_buf);
@@ -249,11 +244,9 @@ const NonExhaustiveEnum = enum(i32) {
 };
 
 fn update(demo: *DemoState) !void {
-    frame_counter.update();
-
     zgui.backend.newFrame(
-        1600.0,
-        1000.0,
+        demo.gctx.swapchain_descriptor.width,
+        demo.gctx.swapchain_descriptor.height,
     );
 
     _te.showTestEngineWindows(null);
@@ -271,7 +264,7 @@ fn update(demo: *DemoState) !void {
         zgui.sameLine(.{});
         zgui.text(
             "{d:.3} ms/frame ({d:.1} fps)",
-            .{ frame_counter.frame_time, frame_counter.fps }, // todo: fix
+            .{ demo.gctx.stats.average_cpu_time, demo.gctx.stats.fps },
         );
 
         zgui.pushFont(demo.font_large, demo.font_large_size);
@@ -586,16 +579,10 @@ fn update(demo: *DemoState) !void {
         }
 
         if (zgui.collapsingHeader("Widgets: Image", .{})) {
-            const tex_id: zgui.TextureRef = .{ .tex_data = null, .tex_id = @enumFromInt(demo.texture.id) };
-            _ = zgui.imageButton(
-                "image_button_id",
-                tex_id,
-                .{ .w = 100.0, .h = 100.0 },
-            );
-            zgui.image(
-                tex_id,
-                .{ .w = @floatFromInt(demo.texture.width), .h = @floatFromInt(demo.texture.height) },
-            );
+            const tex_view = demo.gctx.lookupResource(demo.texture_view).?;
+            const tex_id: zgui.TextureRef = .{ .tex_data = null, .tex_id = @enumFromInt(@intFromPtr(tex_view)) };
+            zgui.image(tex_id, .{ .w = 512.0, .h = 512.0 });
+            _ = zgui.imageButton("image_button_id", tex_id, .{ .w = 512.0, .h = 512.0 });
         }
 
         const draw_list = zgui.getBackgroundDrawList();
@@ -700,121 +687,65 @@ fn update(demo: *DemoState) !void {
         .p = .{ 200, 700 },
         .r = 30,
         .col = zgui.colorConvertFloat3ToU32([_]f32{ 1, 1, 0 }),
-        .thickness = 15 + 15 * @as(f32, @floatCast(@sin(glfw.getTime()))),
+        .thickness = 15 + 15 * @as(f32, @floatCast(@sin(demo.gctx.stats.time))),
     });
 }
 
 fn draw(demo: *DemoState) void {
-    _ = demo;
+    const gctx = demo.gctx;
+    //const fb_width = gctx.swapchain_descriptor.width;
+    //const fb_height = gctx.swapchain_descriptor.height;
 
-    zgui.backend.draw();
+    const swapchain_texv = gctx.swapchain.getCurrentTextureView();
+    defer swapchain_texv.release();
+
+    const commands = commands: {
+        const encoder = gctx.device.createCommandEncoder(null);
+        defer encoder.release();
+
+        // Gui pass.
+        {
+            const pass = zgpu.beginRenderPassSimple(encoder, .load, swapchain_texv, null, null, null);
+            defer zgpu.endReleasePass(pass);
+            zgui.backend.draw(pass);
+        }
+
+        break :commands encoder.finish(null);
+    };
+    defer commands.release();
+
+    gctx.submit(&.{commands});
+    _ = gctx.present();
 }
 
-pub const Texture = struct {
-    id: u32,
-    width: u32,
-    height: u32,
-    allocator: Allocator,
+pub fn main(init: std.process.Init) !void {
+    try zglfw.init();
+    defer zglfw.terminate();
 
-    const Self = @This();
-
-    pub fn deinit(self: *const Texture) void {
-        self.allocator.destroy(self);
+    // Change current working directory to where the executable is located.
+    {
+        var buffer: [std.fs.max_path_bytes]u8 = undefined;
+        const len = std.process.executableDirPath(init.io, &buffer) catch 0;
+        const path = if (len > 0) buffer[0..len] else ".";
+        std.process.setCurrentPath(init.io, path) catch {};
     }
 
-    pub fn new(io: std.Io, allocator: std.mem.Allocator, path: [:0]const u8) !*Texture {
-        zstbi.init(io, allocator);
-        defer zstbi.deinit();
+    zglfw.windowHint(.client_api, .no_api);
 
-        // zstbi.setFlipVerticallyOnLoad(texture_config.flip_v);
+    const window = try zglfw.Window.create(1600, 1000, window_title, null, null);
+    defer window.destroy();
+    window.setSizeLimits(400, 400, -1, -1);
 
-        var image = zstbi.Image.loadFromFile(path, 0) catch |err| {
-            std.debug.print("Texture loadFromFile error: {any}  filepath: {s}\n", .{ err, path });
-            @panic(@errorName(err));
-        };
-        defer image.deinit();
+    const allocator = init.gpa;
 
-        const format: u32 = switch (image.num_components) {
-            0 => gl.RED,
-            3 => gl.RGB,
-            4 => gl.RGBA,
-            else => gl.RED,
-        };
+    const demo = try create(init.io, allocator, window);
+    defer destroy(allocator, demo);
 
-        var texture_id: gl.Uint = undefined;
+    registerTests();
 
-        // std.debug.print("Texture: generating a texture\n", .{});
-        gl.genTextures(1, &texture_id);
-
-        // std.debug.print("Texture: binding a texture\n", .{});
-        gl.bindTexture(gl.TEXTURE_2D, texture_id);
-
-        gl.texImage2D(
-            gl.TEXTURE_2D,
-            0,
-            format,
-            @intCast(image.width),
-            @intCast(image.height),
-            0,
-            format,
-            gl.UNSIGNED_BYTE,
-            image.data.ptr,
-        );
-
-        gl.generateMipmap(gl.TEXTURE_2D);
-
-        const wrap_param: i32 = gl.REPEAT;
-
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap_param);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap_param);
-
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-
-        const texture = try allocator.create(Texture);
-        texture.* = Texture{
-            .id = texture_id,
-            .width = image.width,
-            .height = image.height,
-            .allocator = allocator,
-        };
-        return texture;
+    while (!window.shouldClose() and window.getKey(.escape) != .press) {
+        zglfw.pollEvents();
+        try update(demo);
+        draw(demo);
     }
-};
-
-pub const FrameCount = struct {
-    io: std.Io,
-    last_printed_instant: i64,
-    frame_count: f32,
-    fps: f32,
-    frame_time: f32,
-
-    const Self = @This();
-
-    pub fn new(io: std.Io) Self {
-        return .{
-            .io = io,
-            .last_printed_instant = std.Io.Timestamp.now(io, .awake).toMilliseconds(),
-            .frame_count = 0.0,
-            .frame_time = 0.0,
-            .fps = 0.0,
-        };
-    }
-
-    pub fn update(self: *Self) void {
-        self.frame_count += 1.0;
-
-        const new_instant = std.Io.Timestamp.now(self.io, .awake).toMilliseconds();
-        const diff: f32 = @floatFromInt(new_instant - self.last_printed_instant);
-        const elapsed_secs: f32 = diff / 1000.0;
-
-        if (elapsed_secs > 1.0) {
-            const elapsed_ms = elapsed_secs * 1000.0;
-            self.frame_time = elapsed_ms / self.frame_count;
-            self.fps = self.frame_count / elapsed_secs;
-            //std.debug.print("FPS: {d:.4}  Frame time {d:.2}ms\n", .{self.fps, self.frame_time});
-            self.last_printed_instant = new_instant;
-            self.frame_count = 0.0;
-        }
-    }
-};
+}

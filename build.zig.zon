@@ -1,38 +1,59 @@
 .{
-    .name = "imgui_test",
+    .name = .gui_test_webgpu,
     .version = "0.0.0",
+    .fingerprint = 0x7e274db07d19bba7,
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
-        // common
-        .zgui = .{ .path = "libs/zgui" },
-        .zglfw = .{ .path = "libs/zglfw" },
-        .zpool = .{ .path = "libs/zpool" },
-        .zstbi = .{ .path = "libs/zstbi" },
-        .system_sdk = .{ .path = "libs/system-sdk" },
+        .zgui = .{
+            .url = "https://github.com/zig-gamedev/zgui/archive/48253e73827ecc50fa60f523887fdbe93bbf61a6.tar.gz",
+            .hash = "zgui-0.6.0-dev--L6sZA5IbgCRFc2YDz0rrRTeO2aCo-GOlQZJYgj3YtPb",
+        },
+        .zglfw = .{
+            .url = "https://github.com/zig-gamedev/zglfw/archive/0dd29d8073487c9fe1e45e6b729b3aac271d5a71.tar.gz",
+            .hash = "zglfw-0.10.0-dev-zgVDNIG4IQBWN_sfMD-xfC9bJS2hbBN2W7jNlDLovcdC",
+        },
+        .zpool = .{
+            .url = "https://github.com/zig-gamedev/zpool/archive/02d1472cc4c134a86ff31d19fb546cf478f6b988.tar.gz",
+            .hash = "zpool-0.11.0-dev-bG692YNGAQCn-LXPTcrabIVizgnPcxkxYjwKYAnJi6Tp",
+        },
+        .zstbi = .{
+            .url = "https://github.com/zig-gamedev/zstbi/archive/3813f5f113b26f644cfa01a30155cc76b3526e91.tar.gz",
+            .hash = "zstbi-0.11.0-dev-L0Ea_3GWBwAh7m54XX055vwLKPTPij5hyqyeq92MXPE2",
+        },
+        .zopengl = .{
+            .url = "https://github.com/zig-gamedev/zopengl/archive/eda87248c6fa190fbb5fe78fc84c5e28d6b2032e.tar.gz",
+            .hash = "zopengl-0.6.0-dev-5-tnz8mnDgCHR72YtUpLBYW_u4JgZ0Ub-UFX-M0zRSG1",
+        },
+        .zgpu = .{
+            .url = "https://github.com/zig-gamedev/zgpu/archive/e6d8103b3c34ce1d6aab4db86dedf9ac889b4e67.tar.gz",
+            .hash = "zgpu-0.12.0-dev-nqFT5DSoCACIu3-Gnwlg3Gv1if5vU5RBhpk8o6r6-vqk",
+        },
 
-        // OpenGL backend
-        .zopengl = .{ .path = "libs/zopengl" },
-
-        // WGPU backend
-        .zgpu = .{ .path = "libs/zgpu" },
+        // Prebuilt Dawn (WebGPU) libraries, looked up by zgpu.addLibraryPathsTo()
         .dawn_x86_64_windows_gnu = .{
             .url = "https://github.com/michal-z/webgpu_dawn-x86_64-windows-gnu/archive/d3a68014e6b6b53fd330a0ccba99e4dcfffddae5.tar.gz",
-            .hash = "1220f9448cde02ef3cd51bde2e0850d4489daa0541571d748154e89c6eb46c76a267",
+            .hash = "N-V-__8AAGsYnAT5RIzeAu881RveLghQ1EidqgVBVx10gVTo",
+            .lazy = true,
         },
         .dawn_x86_64_linux_gnu = .{
             .url = "https://github.com/michal-z/webgpu_dawn-x86_64-linux-gnu/archive/7d70db023bf254546024629cbec5ee6113e12a42.tar.gz",
-            .hash = "12204a3519efd49ea2d7cf63b544492a3a771d37eda320f86380813376801e4cfa73",
+            .hash = "N-V-__8AAK7XUQNKNRnv1J6i189jtURJKjp3HTftoyD4Y4CB",
+            .lazy = true,
         },
         .dawn_aarch64_linux_gnu = .{
             .url = "https://github.com/michal-z/webgpu_dawn-aarch64-linux-gnu/archive/c1f55e740a62f6942ff046e709ecd509a005dbeb.tar.gz",
-            .hash = "12205cd13f6849f94ef7688ee88c6b74c7918a5dfb514f8a403fcc2929a0aa342627",
+            .hash = "N-V-__8AAJ-wTwNc0T9oSflO92iO6IxrdMeRil37UU-KQD_M",
+            .lazy = true,
         },
         .dawn_aarch64_macos = .{
             .url = "https://github.com/michal-z/webgpu_dawn-aarch64-macos/archive/d2360cdfff0cf4a780cb77aa47c57aca03cc6dfe.tar.gz",
-            .hash = "12201fe677e9c7cfb8984a36446b329d5af23d03dc1e4f79a853399529e523a007fa",
+            .hash = "N-V-__8AALVIRAIf5nfpx8-4mEo2RGsynVryPQPcHk95qFM5",
+            .lazy = true,
         },
         .dawn_x86_64_macos = .{
             .url = "https://github.com/michal-z/webgpu_dawn-x86_64-macos/archive/901716b10b31ce3e0d3fe479326b41e91d59c661.tar.gz",
-            .hash = "1220b1f02f2f7edd98a078c64e3100907d90311d94880a3cc5927e1ac009d002667a",
+            .hash = "N-V-__8AAIz1QAKx8C8vft2YoHjGTjEAkH2QMR2UiAo8xZJ-",
+            .lazy = true,
         },
     },
 
@@ -40,5 +61,6 @@
         "build.zig",
         "build.zig.zon",
         "src",
+        "gui_test_content",
     },
 }

@@ -22,7 +22,6 @@ pub fn build(b: *std.Build) void {
 
     const zopengl = b.dependency("zopengl", .{
         .target = target,
-        .optimize = optimize,
     });
 
     const zgui_opengl = b.dependency("zgui", .{
@@ -30,26 +29,26 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .backend = .glfw_opengl3,
         .with_te = true,
+        .with_implot = true,
         .shared = false,
     });
 
     const exe = b.addExecutable(.{
         .name = "gui_test_opengl",
-        .root_source_file = b.path("src/gui_test_opengl3.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/gui_test_opengl3.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
-
-    @import("system_sdk").addLibraryPathsTo(exe);
 
     exe.root_module.addImport("zopengl", zopengl.module("root"));
     exe.root_module.addImport("zgui", zgui_opengl.module("root"));
     exe.root_module.addImport("zglfw", zglfw.module("root"));
     exe.root_module.addImport("zstbi", zstbi.module("root"));
 
-    exe.linkLibrary(zgui_opengl.artifact("imgui"));
-    exe.linkLibrary(zglfw.artifact("glfw"));
-    exe.linkLibrary(zstbi.artifact("zstbi"));
+    exe.root_module.linkLibrary(zgui_opengl.artifact("imgui"));
+    exe.root_module.linkLibrary(zglfw.artifact("glfw"));
 
     const exe_options = b.addOptions();
     exe.root_module.addOptions("build_options", exe_options);
@@ -76,7 +75,7 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     //
-    // Build Imgui with the WGPU backend
+    // Build Imgui with the WebGPU (Dawn) backend
     //
 
     const zgpu = b.dependency("zgpu", .{
@@ -84,51 +83,48 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const zgui_wgpu = b.dependency("zgui", .{
+    const zgui_webgpu = b.dependency("zgui", .{
         .target = target,
         .optimize = optimize,
         .backend = .glfw_wgpu,
         .with_te = true,
+        .with_implot = true,
         .shared = false,
     });
 
-    const exe_wgpu = b.addExecutable(.{
-        .name = "gui_test_wgpu",
-        .root_source_file = b.path("src/gui_test_wgpu.zig"),
-        .target = target,
-        .optimize = optimize,
+    const exe_webgpu = b.addExecutable(.{
+        .name = "gui_test_webgpu",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/gui_test_webgpu.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
-    @import("system_sdk").addLibraryPathsTo(exe_wgpu);
-    @import("zgpu").addLibraryPathsTo(exe_wgpu);
+    @import("zgpu").addLibraryPathsTo(exe_webgpu);
 
-    exe_wgpu.root_module.addImport("zgpu", zgpu.module("root"));
-    exe_wgpu.root_module.addImport("zgui", zgui_wgpu.module("root"));
-    exe_wgpu.root_module.addImport("zglfw", zglfw.module("root"));
-    exe_wgpu.root_module.addImport("zstbi", zstbi.module("root"));
+    exe_webgpu.root_module.addImport("zgpu", zgpu.module("root"));
+    exe_webgpu.root_module.addImport("zgui", zgui_webgpu.module("root"));
+    exe_webgpu.root_module.addImport("zglfw", zglfw.module("root"));
+    exe_webgpu.root_module.addImport("zstbi", zstbi.module("root"));
 
-    exe_wgpu.linkLibrary(zgpu.artifact("dawn"));
-    exe_wgpu.linkLibrary(zgui_wgpu.artifact("imgui"));
-    exe_wgpu.linkLibrary(zglfw.artifact("glfw"));
-    exe_wgpu.linkLibrary(zstbi.artifact("zstbi"));
+    exe_webgpu.root_module.linkLibrary(zgpu.artifact("zdawn"));
+    exe_webgpu.root_module.linkLibrary(zgui_webgpu.artifact("imgui"));
+    exe_webgpu.root_module.linkLibrary(zglfw.artifact("glfw"));
 
-    const exe_wgpu_options = b.addOptions();
-    exe_wgpu.root_module.addOptions("build_options", exe_wgpu_options);
-    exe_wgpu_options.addOption([]const u8, "content_dir", content_dir);
+    const exe_webgpu_options = b.addOptions();
+    exe_webgpu.root_module.addOptions("build_options", exe_webgpu_options);
+    exe_webgpu_options.addOption([]const u8, "content_dir", content_dir);
 
-    b.installArtifact(exe_wgpu);
+    b.installArtifact(exe_webgpu);
 
-    const run_cmd_wgpu = b.addRunArtifact(exe_wgpu);
-    run_cmd_wgpu.step.dependOn(b.getInstallStep());
+    const run_cmd_webgpu = b.addRunArtifact(exe_webgpu);
+    run_cmd_webgpu.step.dependOn(b.getInstallStep());
 
     if (b.args) |args| {
-        run_cmd_wgpu.addArgs(args);
+        run_cmd_webgpu.addArgs(args);
     }
 
-    const run_step_wgpu = b.step("run_wgpu", "Run the app");
-    run_step_wgpu.dependOn(&run_cmd_wgpu.step);
-}
-
-inline fn thisDir() []const u8 {
-    return comptime std.fs.path.dirname(@src().file) orelse ".";
+    const run_step_webgpu = b.step("run_webgpu", "Run the app");
+    run_step_webgpu.dependOn(&run_cmd_webgpu.step);
 }
