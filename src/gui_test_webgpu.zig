@@ -691,6 +691,11 @@ fn update(demo: *DemoState) !void {
     });
 }
 
+// The blocks here scope the defers. A defer runs when its enclosing block exits,
+// so the inner block ends the render pass before encoder.finish() is called, as
+// WebGPU requires. The labeled `commands:` block evaluates to the command buffer
+// via `break :commands` and releases the encoder as soon as it's finished.
+// See draw2() for the same logic written linearly with an explicit endReleasePass.
 fn draw(demo: *DemoState) void {
     const gctx = demo.gctx;
     //const fb_width = gctx.swapchain_descriptor.width;
@@ -712,6 +717,28 @@ fn draw(demo: *DemoState) void {
 
         break :commands encoder.finish(null);
     };
+    defer commands.release();
+
+    gctx.submit(&.{commands});
+    _ = gctx.present();
+}
+
+fn draw2(demo: *DemoState) void {
+    const gctx = demo.gctx;
+    //const fb_width = gctx.swapchain_descriptor.width;
+    //const fb_height = gctx.swapchain_descriptor.height;
+
+    const swapchain_texv = gctx.swapchain.getCurrentTextureView();
+    defer swapchain_texv.release();
+
+    const encoder = gctx.device.createCommandEncoder(null);
+    defer encoder.release();
+
+    const pass = zgpu.beginRenderPassSimple(encoder, .load, swapchain_texv, null, null, null);
+    zgui.backend.draw(pass);
+    zgpu.endReleasePass(pass); // must end before finish()
+
+    const commands = encoder.finish(null);
     defer commands.release();
 
     gctx.submit(&.{commands});
